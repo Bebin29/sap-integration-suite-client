@@ -389,6 +389,7 @@ export class IntegrationContentAdvancedClient extends BaseCustomClient<Integrati
    * }
    */
   async getDetailedArtifactErrorInformation(artifactId: string): Promise<DetailedErrorInformation | null> {
+    // Delegiere an die Basismethode im IntegrationContentClient
     return this.client.getDetailedArtifactErrorInformation(artifactId);
   }
 

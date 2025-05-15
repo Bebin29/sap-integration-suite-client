@@ -195,6 +195,45 @@ async function managePackages() {
 managePackages().catch(console.error);
 ```
 
+### Error Information for Runtime Artifacts
+
+Retrieve detailed error information for failed deployments:
+
+```typescript
+import SapClient from 'sap-integration-suite-client';
+
+const client = new SapClient();
+
+async function getDeploymentErrors() {
+  // Get failed deployments
+  const failedArtifacts = await client.integrationContent.getDeployedArtifacts({ 
+    filter: "Status eq 'ERROR'" 
+  });
+  console.log(`Found ${failedArtifacts.length} failed deployments`);
+  
+  if (failedArtifacts.length > 0) {
+    const artifactId = failedArtifacts[0].Id;
+    
+    // Get basic error information
+    const errorInfo = await client.integrationContent.getArtifactErrorInformation(artifactId);
+    console.log(`Error ID: ${errorInfo?.Id}`);
+    
+    // Get detailed error information from $value endpoint
+    const detailedError = await client.integrationContent.getDetailedArtifactErrorInformation(artifactId);
+    if (detailedError && detailedError.message) {
+      console.log(`Error type: ${detailedError.message.messageId}`);
+      console.log(`Error message: ${detailedError.message.messageText}`);
+      
+      if (detailedError.parameter && detailedError.parameter.length > 0) {
+        console.log(`Error parameters: ${detailedError.parameter.join(', ')}`);
+      }
+    }
+  }
+}
+
+getDeploymentErrors().catch(console.error);
+```
+
 ### Message Processing Logs Example
 
 Monitor and analyze message execution:

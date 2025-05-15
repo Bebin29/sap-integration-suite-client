@@ -629,32 +629,76 @@ export class IntegrationContentClient {
       return null;
     }
   }
-  
+
   /**
-   * Gibt detaillierte Fehlerinformationen für ein deployten Integrationsartefakt zurück
-   * Diese Methode ruft den spezifischen $value-Endpunkt auf, der mehr Details enthält
+   * Gibt detaillierte Fehlerinformationen für ein deployten Integrationsartefakt zurück.
+   * Diese Methode ruft den spezifischen ErrorInformation/$value-Endpunkt auf, der detaillierte Informationen enthält.
    * 
    * @param {string} artifactId ID des deployten Integrationsartefakts
    * @returns {Promise<DetailedErrorInformation | null>} Promise mit den detaillierten Fehlerinformationen oder null bei Fehlern
    * 
    * @example
-   * const detailedError = await client.getDetailedArtifactErrorInformation('MyFailedFlow');
-   * if (detailedError && detailedError.message) {
-   *   console.log(`Fehlertyp: ${detailedError.message.messageId}`);
-   *   if (detailedError.parameter && detailedError.parameter.length > 0) {
-   *     try {
-   *       const paramJson = JSON.parse(detailedError.parameter[0]);
-   *       console.log(`Fehlermeldung: ${paramJson.message}`);
-   *     } catch (e) {
-   *       console.log(`Parameter: ${detailedError.parameter[0]}`);
-   *     }
-   *   }
+   * const detailedError = await client.getDetailedArtifactErrorInformation('IntegrationFlow_FAILED_DEPLOYMENT');
+   * if (detailedError) {
+   *   console.log(`Fehlerdetails: ${JSON.stringify(detailedError)}`);
    * }
-   * 
-   * @deprecated Diese Methode wird in zukünftigen Versionen ausgelagert. Bitte verwenden Sie die entsprechenden Methoden im IntegrationContentAdvancedClient.
    */
   async getDetailedArtifactErrorInformation(artifactId: string): Promise<DetailedErrorInformation | null> {
-    return this.advancedClient.getDetailedArtifactErrorInformation(artifactId);
+    try {
+      // Erstelle eine axios-basierte Anfrage zum Endpunkt direkt
+      // Der Endpunkt gibt void zurück, aber wir können die Antwort-Daten manuell verarbeiten
+      const requestParams = {
+        headers: {
+          Accept: 'application/json'
+        }
+      };
+      
+      // Führe die Anfrage aus
+      const response = await this.api.integrationRuntimeArtifactsId.errorInformationValueList(artifactId);
+      
+      // Wir müssen die Antwort manuell interpretieren
+      // Der response.data ist normalerweise null für void Endpunkte, aber wir versuchen trotzdem,
+      // die Daten zu verwenden, falls sie vorhanden sind
+      
+      // Da dies ein spezieller Fall ist, verwenden wir hier den Normalizer-Service, 
+      // um die Daten in ein erwartetes Format zu bringen
+      if (response) {
+        // Hole die Rohdaten aus der Antwort, falls vorhanden
+        const rawData = response.data as unknown;
+        
+        // Überprüfe, ob wir sinnvolle Daten erhalten haben
+        if (rawData) {
+          // Wenn die Daten ein Objekt sind, wandele sie in DetailedErrorInformation um
+          if (typeof rawData === 'object') {
+            return rawData as DetailedErrorInformation;
+          } 
+          
+          // Falls die Daten ein String sind, versuche diesen zu parsen
+          if (typeof rawData === 'string') {
+            try {
+              return JSON.parse(rawData) as DetailedErrorInformation;
+            } catch (e) {
+              console.error('Failed to parse error information response:', e);
+            }
+          }
+        }
+      }
+      
+      // Wenn wir keine Daten bekommen haben oder nicht parsen konnten,
+      // versuchen wir einen manuellen Ansatz, um die Fehlerinformationen zu erhalten
+      const basicErrorInfo = await this.getArtifactErrorInformation(artifactId);
+      if (basicErrorInfo) {
+        // Mindestens die Basis-Fehler-ID zurückgeben
+        return {
+          Id: basicErrorInfo.Id
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching detailed error information:', error);
+      return null;
+    }
   }
 
   /**

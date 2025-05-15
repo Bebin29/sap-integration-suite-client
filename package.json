@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "clean": "rm -rf dist",
+    "clean": "rimraf dist",
     "prebuild": "npm run clean",
     "prepare": "npm run build",
     "test": "npm run build && jest",
@@ -43,7 +43,7 @@
   "license": "MIT",
   "private": false,
   "dependencies": {
-    "axios": "^1.6.0",
+    "axios": "^1.9.0",
     "dotenv": "^16.3.1",
     "qs": "^6.11.2",
     "typescript": "^5.0.4"
