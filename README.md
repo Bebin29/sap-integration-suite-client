@@ -234,6 +234,47 @@ async function getDeploymentErrors() {
 getDeploymentErrors().catch(console.error);
 ```
 
+### Runtime Artifacts with Package Information
+
+Get deployed artifacts with package information (especially useful for Script Collections, Value Mappings, and Message Mappings):
+
+```typescript
+import SapClient from 'sap-integration-suite-client';
+
+const client = new SapClient();
+
+async function getDeployedArtifactsWithPackageInfo() {
+  // Get all script collections with package info
+  const scriptCollections = await client.integrationContent.getDeployedArtifactsWithPackageInfo({ 
+    filter: "Type eq 'SCRIPT_COLLECTION'" 
+  });
+  
+  console.log(`Found ${scriptCollections.length} deployed script collections`);
+  
+  // Show package information
+  scriptCollections.forEach(sc => {
+    console.log(`Script: ${sc.Name}, Package: ${sc.PackageName || 'Unknown'}, Status: ${sc.Status}`);
+  });
+  
+  // Get error information with package details
+  const failedArtifacts = await client.integrationContent.getDeployedArtifactsWithPackageInfo({ 
+    filter: "Status eq 'ERROR'" 
+  });
+  
+  if (failedArtifacts.length > 0) {
+    const artifactId = failedArtifacts[0].Id;
+    
+    // Get detailed error information with package info
+    const detailedError = await client.integrationContent.getDetailedArtifactErrorInformationWithPackageInfo(artifactId);
+    if (detailedError) {
+      console.log(`Error in ${detailedError.PackageName || 'Unknown package'}: ${detailedError.message?.messageText}`);
+    }
+  }
+}
+
+getDeployedArtifactsWithPackageInfo().catch(console.error);
+```
+
 ### Message Processing Logs Example
 
 Monitor and analyze message execution:

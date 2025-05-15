@@ -631,6 +631,44 @@ export class IntegrationContentClient {
   }
 
   /**
+   * Gibt Fehlerinformationen für ein deployten Integrationsartefakt zurück,
+   * angereichert mit Paketinformationen
+   * 
+   * @param {string} artifactId ID des deployten Integrationsartefakts
+   * @returns {Promise<(ComSapHciApiRuntimeArtifactErrorInformation & { PackageId?: string; PackageName?: string }) | null>} 
+   *         Promise mit den angereicherten Fehlerinformationen oder null bei Fehlern
+   * 
+   * @example
+   * const errorInfo = await client.getArtifactErrorInformationWithPackageInfo('MyFailedFlow');
+   * if (errorInfo && errorInfo.Id) {
+   *   console.log(`Fehler-ID: ${errorInfo.Id}, im Paket: ${errorInfo.PackageName || 'Unbekannt'}`);
+   * }
+   */
+  async getArtifactErrorInformationWithPackageInfo(
+    artifactId: string
+  ): Promise<(ComSapHciApiRuntimeArtifactErrorInformation & { PackageId?: string; PackageName?: string }) | null> {
+    try {
+      // Hole das Runtime-Artefakt mit Paketinformationen
+      const runtimeArtifact = await this.getDeployedArtifactByIdWithPackageInfo(artifactId);
+      
+      // Wenn es kein Artefakt gibt oder keine Fehlerinformationen, gib null zurück
+      if (!runtimeArtifact?.ErrorInformation) {
+        return null;
+      }
+      
+      // Erweitere die Fehlerinformationen um die Paketinformationen
+      return {
+        ...runtimeArtifact.ErrorInformation,
+        PackageId: runtimeArtifact.PackageId,
+        PackageName: runtimeArtifact.PackageName
+      };
+    } catch (error) {
+      console.error('Error fetching error information with package info:', error);
+      return null;
+    }
+  }
+
+  /**
    * Gibt detaillierte Fehlerinformationen für ein deployten Integrationsartefakt zurück.
    * Diese Methode ruft den spezifischen ErrorInformation/$value-Endpunkt auf, der detaillierte Informationen enthält.
    * 
@@ -697,6 +735,50 @@ export class IntegrationContentClient {
       return null;
     } catch (error) {
       console.error('Error fetching detailed error information:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Gibt detaillierte Fehlerinformationen für ein deployten Integrationsartefakt zurück,
+   * angereichert mit Paketinformationen.
+   * Diese Methode ruft den spezifischen ErrorInformation/$value-Endpunkt auf 
+   * und kombiniert die Informationen mit den Paketdaten.
+   * 
+   * @param {string} artifactId ID des deployten Integrationsartefakts
+   * @returns {Promise<(DetailedErrorInformation & { PackageId?: string; PackageName?: string }) | null>} 
+   *          Promise mit den angereicherten detaillierten Fehlerinformationen oder null bei Fehlern
+   * 
+   * @example
+   * const detailedError = await client.getDetailedArtifactErrorInformationWithPackageInfo('IntegrationFlow_FAILED_DEPLOYMENT');
+   * if (detailedError) {
+   *   console.log(`Fehlerdetails im Paket ${detailedError.PackageName || 'Unbekannt'}: ${JSON.stringify(detailedError)}`);
+   * }
+   */
+  async getDetailedArtifactErrorInformationWithPackageInfo(
+    artifactId: string
+  ): Promise<(DetailedErrorInformation & { PackageId?: string; PackageName?: string }) | null> {
+    try {
+      // Hole die detaillierten Fehlerinformationen
+      const detailedError = await this.getDetailedArtifactErrorInformation(artifactId);
+      if (!detailedError) {
+        return null;
+      }
+      
+      // Hole das Artefakt mit Paketinformationen
+      const artifactWithPackage = await this.getDeployedArtifactByIdWithPackageInfo(artifactId);
+      if (!artifactWithPackage) {
+        return detailedError as (DetailedErrorInformation & { PackageId?: string; PackageName?: string });
+      }
+      
+      // Kombiniere die Informationen
+      return {
+        ...detailedError,
+        PackageId: artifactWithPackage.PackageId,
+        PackageName: artifactWithPackage.PackageName
+      };
+    } catch (error) {
+      console.error('Error fetching detailed error information with package info:', error);
       return null;
     }
   }
@@ -940,6 +1022,156 @@ export class IntegrationContentClient {
   async getDeployedArtifactById(artifactId: string): Promise<ComSapHciApiIntegrationRuntimeArtifact | undefined> {
     const response = await this.api.integrationRuntimeArtifactsId.integrationRuntimeArtifactsList(artifactId);
     return this.normalizer.normalizeEntityResponse(response.data, 'getDeployedArtifactById');
+  }
+
+  /**
+   * Gibt ein spezifisches deploytes Integrationsartefakt anhand seiner ID zurück und reichert es mit Paketinformationen an.
+   * 
+   * @param {string} artifactId ID des deployten Artefakts
+   * @returns {Promise<(ComSapHciApiIntegrationRuntimeArtifact & { PackageId?: string; PackageName?: string }) | undefined>} 
+   *          Promise mit dem erweiterten Runtime-Artefakt oder undefined, wenn nicht gefunden.
+   * 
+   * @example
+   * const artifact = await client.getDeployedArtifactByIdWithPackageInfo('MyScriptCollection');
+   * if (artifact) {
+   *   console.log(`${artifact.Name} im Paket: ${artifact.PackageName || 'Unbekannt'}`);
+   * }
+   */
+  async getDeployedArtifactByIdWithPackageInfo(artifactId: string): Promise<(ComSapHciApiIntegrationRuntimeArtifact & { 
+    PackageId?: string; 
+    PackageName?: string 
+  }) | undefined> {
+    // Definiere einen Typ für die erweiterten Artefakte
+    type EnhancedArtifact = ComSapHciApiIntegrationRuntimeArtifact & { 
+      PackageId?: string; 
+      PackageName?: string 
+    };
+
+    // Definiere einen Typ für die erweiterten Designtime-Artefakte
+    type EnhancedDesigntimeArtifact = {
+      Id?: string | null;
+      PackageId?: string;
+      PackageName?: string;
+    };
+
+    try {
+      // Hole das Basis-Artefakt
+      const artifact = await this.getDeployedArtifactById(artifactId);
+      if (!artifact) {
+        return undefined;
+      }
+
+      // Konvertiere zu erweitertem Artefakt
+      const enhancedArtifact = artifact as EnhancedArtifact;
+      
+      // Wenn kein Typ vorhanden ist, können wir nicht zuordnen
+      if (!artifact.Type) {
+        return enhancedArtifact;
+      }
+
+      // Identifiziere den Typ des Artefakts
+      const type = artifact.Type;
+      
+      // Hole alle Pakete
+      const packages = await this.getIntegrationPackages({ top: 1000 });
+      
+      // Finde das Paket basierend auf dem Artefakttyp
+      switch (type) {
+        case 'SCRIPT_COLLECTION':
+          // Durchsuche alle Pakete nach dem Script
+          for (const pkg of packages) {
+            if (pkg.Id) {
+              try {
+                const scripts = await this.getScriptCollections(pkg.Id);
+                const matchingScript = scripts.find(script => script.Id === artifactId);
+                if (matchingScript) {
+                  enhancedArtifact.PackageId = pkg.Id;
+                  enhancedArtifact.PackageName = pkg.Name;
+                  return enhancedArtifact;
+                }
+              } catch (error) {
+                console.error(`Fehler beim Laden der Script Collections für Paket ${pkg.Id}:`, error);
+              }
+            }
+          }
+          break;
+          
+        case 'VALUE_MAPPING':
+          // Durchsuche alle Pakete nach dem Value Mapping
+          for (const pkg of packages) {
+            if (pkg.Id) {
+              try {
+                const valueMappings = await this.getValueMappings(pkg.Id);
+                const matchingMapping = valueMappings.find(mapping => mapping.Id === artifactId);
+                if (matchingMapping) {
+                  enhancedArtifact.PackageId = pkg.Id;
+                  enhancedArtifact.PackageName = pkg.Name;
+                  return enhancedArtifact;
+                }
+              } catch (error) {
+                console.error(`Fehler beim Laden der Value Mappings für Paket ${pkg.Id}:`, error);
+              }
+            }
+          }
+          break;
+          
+        case 'MESSAGE_MAPPING':
+          // Durchsuche alle Pakete nach dem Message Mapping
+          for (const pkg of packages) {
+            if (pkg.Id) {
+              try {
+                const messageMappings = await this.getMessageMappings(pkg.Id);
+                const matchingMapping = messageMappings.find(mapping => mapping.Id === artifactId);
+                if (matchingMapping) {
+                  enhancedArtifact.PackageId = pkg.Id;
+                  enhancedArtifact.PackageName = pkg.Name;
+                  return enhancedArtifact;
+                }
+              } catch (error) {
+                console.error(`Fehler beim Laden der Message Mappings für Paket ${pkg.Id}:`, error);
+              }
+            }
+          }
+          break;
+          
+        case 'INTEGRATION_FLOW':
+          // Durchsuche alle Pakete nach dem Flow (falls nötig)
+          // Falls der Flow schon PackageId enthält, überspringen wir diese Suche
+          if (enhancedArtifact.PackageId) {
+            // PackageId ist bereits vorhanden, wir versuchen nur den Namen zu finden
+            const pkg = packages.find(p => p.Id === enhancedArtifact.PackageId);
+            if (pkg) {
+              enhancedArtifact.PackageName = pkg.Name;
+              return enhancedArtifact;
+            }
+          } else {
+            for (const pkg of packages) {
+              if (pkg.Id) {
+                try {
+                  const flows = await this.getIntegrationFlows(pkg.Id);
+                  const matchingFlow = flows.find(flow => flow.Id === artifactId);
+                  if (matchingFlow) {
+                    enhancedArtifact.PackageId = pkg.Id;
+                    enhancedArtifact.PackageName = pkg.Name;
+                    return enhancedArtifact;
+                  }
+                } catch (error) {
+                  console.error(`Fehler beim Laden der Integration Flows für Paket ${pkg.Id}:`, error);
+                }
+              }
+            }
+          }
+          break;
+      }
+      
+      // Wenn kein Paket gefunden wurde, geben wir das ursprüngliche Artefakt zurück
+      return enhancedArtifact;
+    } catch (error) {
+      console.error(`Fehler beim Anreichern des Artefakts ${artifactId} mit Paketinformationen:`, error);
+      // Bei Fehler versuchen wir zumindest das Basis-Artefakt zurückzugeben
+      const artifact = await this.getDeployedArtifactById(artifactId).catch(() => undefined);
+      return artifact as EnhancedArtifact | undefined;
+    }
   }
 
   /**
@@ -2022,6 +2254,225 @@ export class IntegrationContentClient {
     const response = await this.api.integrationRuntimeArtifacts.countList({ $filter: filter });
     const countString = response.data as unknown as string;
     return parseInt(countString || '0', 10);
+  }
+
+  /**
+   * Gibt deployten Integrationsartefakte mit Paketinformationen zurück.
+   * Diese Methode reichert die Standard-Runtime-Artefakte mit zusätzlichen 
+   * Paketinformationen an, insbesondere für Script Collections, Value Mappings und Message Mappings.
+   * 
+   * @param {Object} options Optionale Parameter für die Anfrage
+   * @param {number} [options.top] Maximale Anzahl der zurückzugebenden Artefakte
+   * @param {number} [options.skip] Anzahl der zu überspringenden Artefakte
+   * @param {string} [options.filter] OData-Filterausdruck
+   * @returns {Promise<(ComSapHciApiIntegrationRuntimeArtifact & { PackageId?: string; PackageName?: string })[]>} 
+   *          Promise mit einer Liste von erweiterten Runtime-Artefakten
+   * 
+   * @example
+   * // Deployten Artefakte mit Paketinformationen abrufen
+   * const artifacts = await client.getDeployedArtifactsWithPackageInfo();
+   * 
+   * @example
+   * // Nach Typ filtern und Package-Informationen anzeigen
+   * const scriptCollections = await client.getDeployedArtifactsWithPackageInfo({ 
+   *   filter: "Type eq 'SCRIPT_COLLECTION'" 
+   * });
+   * scriptCollections.forEach(sc => {
+   *   console.log(`${sc.Name} im Paket: ${sc.PackageName || 'Unbekannt'}`);
+   * });
+   */
+  async getDeployedArtifactsWithPackageInfo(options: { 
+    top?: number; 
+    skip?: number; 
+    filter?: string 
+  } = {}): Promise<(ComSapHciApiIntegrationRuntimeArtifact & { PackageId?: string; PackageName?: string })[]> {
+    // Schritt 1: Hole alle deployten Artefakte über die Standard-Methode
+    const runtimeArtifacts = await this.getDeployedArtifacts(options);
+    
+    // Frühzeitiger Abbruch, wenn keine Artefakte gefunden wurden
+    if (runtimeArtifacts.length === 0) {
+      return [];
+    }
+    
+    // Definiere einen Typ für die erweiterten Artefakte
+    type EnhancedArtifact = ComSapHciApiIntegrationRuntimeArtifact & { 
+      PackageId?: string; 
+      PackageName?: string 
+    };
+
+    // Definiere einen Typ für die erweiterten Designtime Artefakte
+    type EnhancedDesigntimeArtifact = {
+      Id?: string | null;
+      PackageId?: string;
+      PackageName?: string;
+    };
+    
+    try {
+      // Schritt 2: Kategorisiere Artefakte nach Typ, um optimierte Lookups durchzuführen
+      const artifactsByType: { [key: string]: ComSapHciApiIntegrationRuntimeArtifact[] } = {};
+      
+      for (const artifact of runtimeArtifacts) {
+        const type = artifact.Type || 'UNKNOWN';
+        if (!artifactsByType[type]) {
+          artifactsByType[type] = [];
+        }
+        artifactsByType[type].push(artifact);
+      }
+      
+      // Erweiterte Artefakte mit Package-Infos
+      const enhancedArtifacts: EnhancedArtifact[] = [...runtimeArtifacts as EnhancedArtifact[]];
+      
+      // Map für schnellen Zugriff auf Artefakte anhand der ID
+      const artifactIdMap = new Map<string, number>();
+      runtimeArtifacts.forEach((artifact, index) => {
+        if (artifact.Id) {
+          artifactIdMap.set(artifact.Id, index);
+        }
+      });
+      
+      // Schritt 3: Hole alle Pakete, um eine Lookup-Map zu erstellen
+      const packages = await this.getIntegrationPackages({ top: 1000 });
+      
+      // Schritt 4: Durchlaufe jeden Typ und füge Paketinformationen hinzu
+      
+      // 4.1: Script Collections
+      if (artifactsByType['SCRIPT_COLLECTION']) {
+        // Hole alle Script Collections aller Pakete
+        const allScriptCollections: EnhancedDesigntimeArtifact[] = [];
+        for (const pkg of packages) {
+          if (pkg.Id) {
+            try {
+              const scriptCollections = await this.getScriptCollections(pkg.Id);
+              // Füge Paket-Info zu jedem Script hinzu für spätere Zuordnung
+              for (const script of scriptCollections) {
+                allScriptCollections.push({
+                  ...script,
+                  // Speichere das Package explizit
+                  PackageId: pkg.Id,
+                  // Speichere zusätzlich den Paketnamen für die Anzeige
+                  PackageName: pkg.Name
+                } as EnhancedDesigntimeArtifact);
+              }
+            } catch (error) {
+              console.error(`Fehler beim Laden der Script Collections für Paket ${pkg.Id}:`, error);
+            }
+          }
+        }
+        
+        // Ordne die Script Collections den Runtime-Artefakten zu
+        for (const script of allScriptCollections) {
+          if (script.Id && artifactIdMap.has(script.Id)) {
+            const index = artifactIdMap.get(script.Id)!;
+            enhancedArtifacts[index].PackageId = script.PackageId;
+            enhancedArtifacts[index].PackageName = script.PackageName;
+          }
+        }
+      }
+      
+      // 4.2: Value Mappings
+      if (artifactsByType['VALUE_MAPPING']) {
+        // Ähnliches Vorgehen wie bei Script Collections
+        const allValueMappings: EnhancedDesigntimeArtifact[] = [];
+        for (const pkg of packages) {
+          if (pkg.Id) {
+            try {
+              const valueMappings = await this.getValueMappings(pkg.Id);
+              for (const mapping of valueMappings) {
+                allValueMappings.push({
+                  ...mapping,
+                  // Sichere das Package und den Namen
+                  PackageId: pkg.Id,
+                  PackageName: pkg.Name
+                } as EnhancedDesigntimeArtifact);
+              }
+            } catch (error) {
+              console.error(`Fehler beim Laden der Value Mappings für Paket ${pkg.Id}:`, error);
+            }
+          }
+        }
+        
+        // Ordne die Value Mappings den Runtime-Artefakten zu
+        for (const mapping of allValueMappings) {
+          if (mapping.Id && artifactIdMap.has(mapping.Id)) {
+            const index = artifactIdMap.get(mapping.Id)!;
+            enhancedArtifacts[index].PackageId = mapping.PackageId;
+            enhancedArtifacts[index].PackageName = mapping.PackageName;
+          }
+        }
+      }
+      
+      // 4.3: Message Mappings
+      if (artifactsByType['MESSAGE_MAPPING']) {
+        // Ähnliches Vorgehen wie bei den anderen Typen
+        const allMessageMappings: EnhancedDesigntimeArtifact[] = [];
+        for (const pkg of packages) {
+          if (pkg.Id) {
+            try {
+              const messageMappings = await this.getMessageMappings(pkg.Id);
+              for (const mapping of messageMappings) {
+                allMessageMappings.push({
+                  ...mapping,
+                  // Sichere das Package und den Namen
+                  PackageId: pkg.Id,
+                  PackageName: pkg.Name
+                } as EnhancedDesigntimeArtifact);
+              }
+            } catch (error) {
+              console.error(`Fehler beim Laden der Message Mappings für Paket ${pkg.Id}:`, error);
+            }
+          }
+        }
+        
+        // Ordne die Message Mappings den Runtime-Artefakten zu
+        for (const mapping of allMessageMappings) {
+          if (mapping.Id && artifactIdMap.has(mapping.Id)) {
+            const index = artifactIdMap.get(mapping.Id)!;
+            enhancedArtifacts[index].PackageId = mapping.PackageId;
+            enhancedArtifacts[index].PackageName = mapping.PackageName;
+          }
+        }
+      }
+      
+      // 4.4: Integration Flows (falls sie in der Runtime keine Package-Info haben)
+      if (artifactsByType['INTEGRATION_FLOW']) {
+        const allFlows: EnhancedDesigntimeArtifact[] = [];
+        for (const pkg of packages) {
+          if (pkg.Id) {
+            try {
+              const flows = await this.getIntegrationFlows(pkg.Id);
+              for (const flow of flows) {
+                allFlows.push({
+                  ...flow,
+                  // Sichere das Package und den Namen
+                  PackageId: pkg.Id,
+                  PackageName: pkg.Name
+                } as EnhancedDesigntimeArtifact);
+              }
+            } catch (error) {
+              console.error(`Fehler beim Laden der Integration Flows für Paket ${pkg.Id}:`, error);
+            }
+          }
+        }
+        
+        // Ordne die Flows den Runtime-Artefakten zu
+        for (const flow of allFlows) {
+          if (flow.Id && artifactIdMap.has(flow.Id)) {
+            const index = artifactIdMap.get(flow.Id)!;
+            // Nur setzen, wenn nicht bereits vorhanden
+            if (!enhancedArtifacts[index].PackageId) {
+              enhancedArtifacts[index].PackageId = flow.PackageId;
+              enhancedArtifacts[index].PackageName = flow.PackageName;
+            }
+          }
+        }
+      }
+      
+      return enhancedArtifacts;
+    } catch (error) {
+      console.error('Fehler beim Anreichern der Artefakte mit Paketinformationen:', error);
+      // Im Fehlerfall geben wir die ursprünglichen Artefakte zurück
+      return runtimeArtifacts as EnhancedArtifact[];
+    }
   }
 
   // --- Integration Adapter Methods (Cloud Foundry only) ---
